@@ -89,6 +89,13 @@ Default to user-led operation:
 
 High-risk actions require explicit user approval: submit, save, create, update, delete, import, export, publish, approve, reject, start, stop, restart, release, payment, permission changes, forms, toggles, and any action with business side effects.
 
+## Interaction Guardrails
+
+- Prefer page-derived URLs. Before navigating inside an application, use links, menu hrefs, form actions, or runtime route state already present on the page. Only infer or hand-build a URL when no page-derived target is available, and say that it is inferred.
+- Verify after side effects. After saving, uploading, submitting, toggling, or filling important fields, confirm the result with state text, field values, button state, URL changes, or error dialogs instead of relying only on fixed waits.
+- Handle custom controls with fallbacks. For Material UI, Ant Design, or similar custom controls, try accessibility refs first, then role/name targeting, then targeted DOM interaction, then coordinates. After any fallback, verify the final displayed value.
+- Treat high-risk confirmation dialogs as a separate approval point. Read the dialog text, checkbox state, and button labels, explain the effect to the user, and wait for explicit approval before confirming.
+
 ## Certificate Gates
 
 Internal, preprod, and integration systems may have broken, self-signed, expired, or mismatched certificates. The task is not complete until the browser can load the real page data.
