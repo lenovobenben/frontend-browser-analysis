@@ -64,10 +64,12 @@ ls -ld "$HOME/.chrome-agent-debug"
 
 If the profile contains stale `SingletonCookie`, `SingletonLock`, or `SingletonSocket`, remove them only after confirming the referenced Chrome process is not alive and no dedicated-profile Chrome is running.
 
-Start Chrome at most once, preferably as a foreground long-running session:
+Start Chrome at most once. The dedicated Chrome is a long-lived session: start it once, leave it running across tasks, and reconnect on subsequent invocations rather than launching repeatedly.
+
+On macOS, launch via `open -na` so the process is detached from the agent's short-lived shell:
 
 ```bash
-"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" \
+open -na "Google Chrome" --args \
   --remote-debugging-address=127.0.0.1 \
   --remote-debugging-port=9222 \
   --user-data-dir="$HOME/.chrome-agent-debug" \
@@ -76,7 +78,7 @@ Start Chrome at most once, preferably as a foreground long-running session:
   about:blank
 ```
 
-Wait for `DevTools listening on ws://127.0.0.1:9222/...` or a confirmed `lsof` listener before connecting. If startup exits without a listener, diagnose output, stale profile locks, wrong processes, or profile conflicts before retrying.
+After launching, poll `lsof -nP -iTCP:9222 -sTCP:LISTEN` until the listener appears (typically 3-8 seconds) before connecting. If startup exits without a listener, diagnose stale profile locks, wrong processes, or profile conflicts before retrying.
 
 ## Collaboration Boundary
 
