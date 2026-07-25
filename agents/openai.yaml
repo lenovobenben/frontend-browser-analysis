@@ -1,4 +1,4 @@
 interface:
   display_name: "Frontend Browser Analysis"
-  short_description: "Analyze frontend runtime state in a logged-in browser"
-  default_prompt: "Use $frontend-browser-analysis to inspect the current page through the dedicated logged-in Chrome profile and explain its frontend runtime state and data sources."
+  short_description: "Analyze frontend runtime state in logged-in Chrome"
+  default_prompt: "Use $frontend-browser-analysis to connect to the dedicated logged-in Chrome profile on this Windows or macOS host, inspect the current page, and explain its frontend runtime state and data sources."

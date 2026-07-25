@@ -1,6 +1,6 @@
 # Frontend Browser Analysis
 
-A Codex skill for investigating real web applications through your logged-in Chrome session—with `agent-browser` first, lower token usage, and Chrome DevTools only when necessary.
+A cross-platform Codex skill for investigating real web applications through your logged-in Chrome session—with `agent-browser` first, lower token usage, and Chrome DevTools only when necessary. Browser startup and session reuse are documented for Windows and macOS.
 
 ## What is it for?
 
@@ -53,11 +53,22 @@ You remain in control of login, navigation, and any action that may change data.
 - Google Chrome
 - [`agent-browser`](https://github.com/vercel-labs/agent-browser)
 - A dedicated Chrome profile with remote debugging enabled
+- Windows with PowerShell, or macOS
 - Optional: a compatible Chrome DevTools MCP server for difficult edge cases
 
 ## Installation
 
 Ask Codex to install this repository as a skill, or clone/symlink it into your Codex skills directory. After installation, start a new Codex session so the skill can be discovered.
+
+On Windows, install `agent-browser` first if it is not already available:
+
+```powershell
+npm install -g agent-browser
+agent-browser --version
+agent-browser doctor
+```
+
+The skill discovers Chrome from the standard machine-wide and per-user installation locations, starts a visible browser with `%USERPROFILE%\.chrome-agent-debug`, and reuses it through `127.0.0.1:9222`.
 
 The instructions used by Codex are defined in [`SKILL.md`](./SKILL.md).
 
@@ -65,7 +76,7 @@ The instructions used by Codex are defined in [`SKILL.md`](./SKILL.md).
 
 # 前端浏览器分析
 
-一个通过已登录 Chrome 会话排查真实 Web 应用的 Codex Skill：优先使用 `agent-browser`，减少 token 消耗，只在必要时才使用 Chrome DevTools。
+一个通过已登录 Chrome 会话排查真实 Web 应用的跨平台 Codex Skill：优先使用 `agent-browser`，减少 token 消耗，只在必要时才使用 Chrome DevTools。浏览器启动和会话复用目前支持 Windows 与 macOS。
 
 ## 它是做什么的？
 
@@ -118,10 +129,21 @@ Chrome DevTools 是兜底方案，不是默认方案。
 - Google Chrome
 - [`agent-browser`](https://github.com/vercel-labs/agent-browser)
 - 一个启用了远程调试的专用 Chrome Profile
+- Windows 与 PowerShell，或 macOS
 - 可选：用于处理疑难场景的兼容 Chrome DevTools MCP Server
 
 ## 安装
 
 可以直接让 Codex 将这个 GitHub 仓库安装为 Skill，也可以将仓库克隆或软链接到 Codex 的 Skills 目录。安装后重新开始一个 Codex 会话，让 Skill 被正确发现。
+
+在 Windows 上，如果尚未安装 `agent-browser`，先运行：
+
+```powershell
+npm install -g agent-browser
+agent-browser --version
+agent-browser doctor
+```
+
+Skill 会从常见的系统级和用户级位置查找 Chrome，使用 `%USERPROFILE%\.chrome-agent-debug` 启动可见浏览器，并通过 `127.0.0.1:9222` 复用该会话。
 
 Codex 实际读取和执行的说明位于 [`SKILL.md`](./SKILL.md)。

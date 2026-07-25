@@ -1,13 +1,13 @@
 ---
 name: frontend-browser-analysis
-description: Use when analyzing any web application's frontend behavior through the user's logged-in dedicated Chrome profile, including page runtime state, route/store/component data, DOM-accessibility tree, HTTP data sources, certificate-gated internal pages, and collaborative exploration. Enforces robust Chrome debug-port startup/reuse, agent-browser inspection, user-led business navigation, no speculative clicks, no DevTools/CDP for ordinary analysis, successful data loading despite certificate interstitials, safe runtime-state summaries, and read-only API replay only when needed.
+description: Use when analyzing any web application's frontend behavior on Windows or macOS through the user's logged-in dedicated Chrome profile, including page runtime state, route/store/component data, DOM-accessibility tree, HTTP data sources, certificate-gated internal pages, and collaborative exploration. Enforces platform-aware Chrome debug-port startup/reuse, agent-browser inspection, user-led business navigation, no speculative clicks, no DevTools/CDP for ordinary analysis, successful data loading despite certificate interstitials, safe runtime-state summaries, and read-only API replay only when needed.
 ---
 
 # Frontend Browser Analysis
 
 ## Purpose
 
-Use the user's dedicated Chrome profile and `/usr/local/bin/agent-browser` to analyze frontend behavior on arbitrary websites and internal systems while preserving saved passwords, browser sync, cookies, and long-lived login sessions. This skill is for collaborative frontend runtime analysis: the user positions the page and provides business context; the agent reads page structure, runtime state, network/resource data, and visible UI behavior.
+Use the user's dedicated Chrome profile and `agent-browser` to analyze frontend behavior on arbitrary websites and internal systems while preserving saved passwords, browser sync, cookies, and long-lived login sessions. This skill is for collaborative frontend runtime analysis: the user positions the page and provides business context; the agent reads page structure, runtime state, network/resource data, and visible UI behavior.
 
 Do not use this as a generic browser autopilot. The valuable work is explaining how the page is produced: route, component state, store data, visible UI, request parameters, response summaries, and frontend transforms.
 
@@ -15,9 +15,8 @@ Do not use this as a generic browser autopilot. The valuable work is explaining 
 
 Use the shared dedicated Chrome profile:
 
-```bash
-"$HOME/.chrome-agent-debug"
-```
+- Windows: `%USERPROFILE%\.chrome-agent-debug`
+- macOS: `$HOME/.chrome-agent-debug`
 
 This profile carries saved passwords and login state. Avoid fresh browser profiles because they force repeated manual logins and lose the user's prepared state.
 
@@ -25,60 +24,25 @@ Use direct Chrome startup only when no suitable browser is already running. Do n
 
 ## Startup And Connection
 
-Do not run bare `agent-browser get url`, `tab list`, `snapshot`, or `open` before connecting to port `9222` when using the dedicated profile. Without an explicit connection, `agent-browser` may attach to or create a temporary browser that lacks the user's login state.
+Detect the host operating system before running browser startup commands:
 
-Start by checking the debug port:
+- On Windows, read and follow [references/startup-windows.md](references/startup-windows.md).
+- On macOS, read and follow [references/startup-macos.md](references/startup-macos.md).
+- On another operating system, stop and explain that its startup path is not yet defined. Do not guess by mixing commands from the Windows and macOS guides.
 
-```bash
-lsof -nP -iTCP:9222 -sTCP:LISTEN
-```
+Do not run bare `agent-browser get url`, `tab list`, `snapshot`, or `open` when using the dedicated profile. Pass `--cdp 9222` explicitly on every page command so the command cannot attach to or create a temporary browser that lacks the user's login state.
 
-If port `9222` is listening, identify the process:
-
-```bash
-ps -fp <pid>
-```
-
-If it is the intended Chrome using `~/.chrome-agent-debug`, connect:
-
-```bash
-/usr/local/bin/agent-browser connect 9222
-```
-
-Then inspect:
-
-```bash
-/usr/local/bin/agent-browser get url
-/usr/local/bin/agent-browser tab list
-/usr/local/bin/agent-browser snapshot --compact --depth 8
-```
-
-If port `9222` is occupied by a wrong process, report the PID and command before disrupting it. Do not launch another competing browser on the same port.
-
-If port `9222` is not listening, verify Chrome and the profile:
-
-```bash
-ls -la "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
-ls -ld "$HOME/.chrome-agent-debug"
-```
-
-If the profile contains stale `SingletonCookie`, `SingletonLock`, or `SingletonSocket`, remove them only after confirming the referenced Chrome process is not alive and no dedicated-profile Chrome is running.
+If port `9222` is occupied by a wrong process, report its PID and command before disrupting it. Do not launch another competing browser on the same port.
 
 Start Chrome at most once. The dedicated Chrome is a long-lived session: start it once, leave it running across tasks, and reconnect on subsequent invocations rather than launching repeatedly.
 
-On macOS, launch via `open -na` so the process is detached from the agent's short-lived shell:
+After the platform startup guide verifies the listener, inspect:
 
-```bash
-open -na "Google Chrome" --args \
-  --remote-debugging-address=127.0.0.1 \
-  --remote-debugging-port=9222 \
-  --user-data-dir="$HOME/.chrome-agent-debug" \
-  --no-first-run \
-  --new-window \
-  about:blank
+```text
+agent-browser --cdp 9222 get url
+agent-browser --cdp 9222 tab list
+agent-browser --cdp 9222 snapshot --compact --depth 8
 ```
-
-After launching, poll `lsof -nP -iTCP:9222 -sTCP:LISTEN` until the listener appears (typically 3-8 seconds) before connecting. If startup exits without a listener, diagnose stale profile locks, wrong processes, or profile conflicts before retrying.
 
 ## Collaboration Boundary
 
@@ -123,14 +87,14 @@ For any visible field, page section, table, chart, tab, modal, or error:
 3. Inspect runtime state with targeted `eval`: route, store, component names, selected fields, table data, filters, tabs, and error state.
 4. Inspect network history:
 
-```bash
-/usr/local/bin/agent-browser network requests --filter 'Describe|List|Get|Query|Search|Fetch|Load|Graph|Metric|Config'
+```text
+agent-browser --cdp 9222 network requests --filter 'Describe|List|Get|Query|Search|Fetch|Load|Graph|Metric|Config'
 ```
 
 5. If network history has no useful body data, inspect resource timing:
 
-```bash
-/usr/local/bin/agent-browser eval '(() => performance.getEntriesByType("resource").filter(e => /xhr|fetch|api|graphql|query|list|describe|get|search/i.test(e.name)).map(e => ({name: e.name, initiatorType: e.initiatorType, startTime: Math.round(e.startTime), duration: Math.round(e.duration)})).slice(-80))()'
+```text
+agent-browser --cdp 9222 eval '(() => performance.getEntriesByType("resource").filter(e => /xhr|fetch|api|graphql|query|list|describe|get|search/i.test(e.name)).map(e => ({name: e.name, initiatorType: e.initiatorType, startTime: Math.round(e.startTime), duration: Math.round(e.duration)})).slice(-80))()'
 ```
 
 6. Map visible UI to component state, then component state to API request/response fields and frontend transforms.
@@ -155,8 +119,8 @@ Skip or redact fields whose names contain `password`, `secret`, `token`, `creden
 
 Useful Vue pattern:
 
-```bash
-/usr/local/bin/agent-browser eval '(() => { const out=[]; for (const el of document.querySelectorAll("*")) { const vm=el.__vue__; if (!vm) continue; const text=(el.innerText||"").trim(); const name=vm.$options && (vm.$options.name || vm.$options._componentTag); if (!text && !name) continue; out.push({name, tag: el.tagName, cls: String(el.className||"").slice(0,80), text: text.slice(0,300), route: vm.$route && {path: vm.$route.path, params: vm.$route.params, query: vm.$route.query}}); if (out.length >= 30) break; } return out; })()'
+```text
+agent-browser --cdp 9222 eval '(() => { const out=[]; for (const el of document.querySelectorAll("*")) { const vm=el.__vue__; if (!vm) continue; const text=(el.innerText||"").trim(); const name=vm.$options && (vm.$options.name || vm.$options._componentTag); if (!text && !name) continue; out.push({name, tag: el.tagName, cls: String(el.className||"").slice(0,80), text: text.slice(0,300), route: vm.$route && {path: vm.$route.path, params: vm.$route.params, query: vm.$route.query}}); if (out.length >= 30) break; } return out; })()'
 ```
 
 ## Read-Only API Replay
