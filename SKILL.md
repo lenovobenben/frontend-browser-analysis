@@ -45,6 +45,8 @@ If it is the intended Chrome using `~/.chrome-agent-debug`, connect:
 /usr/local/bin/agent-browser connect 9222
 ```
 
+If the command contains `--no-startup-window`, treat it as a Chrome background-restart state, not as headless mode. The browser may have no visible windows while the app remains alive. Report that state to the user instead of describing it as malware or silently launching a second Chrome.
+
 Then inspect:
 
 ```bash
@@ -73,12 +75,34 @@ open -na "Google Chrome" --args \
   --remote-debugging-address=127.0.0.1 \
   --remote-debugging-port=9222 \
   --user-data-dir="$HOME/.chrome-agent-debug" \
+  --disable-features=SmartRestart \
   --no-first-run \
   --new-window \
   about:blank
 ```
 
 After launching, poll `lsof -nP -iTCP:9222 -sTCP:LISTEN` until the listener appears (typically 3-8 seconds) before connecting. If startup exits without a listener, diagnose stale profile locks, wrong processes, or profile conflicts before retrying.
+
+`--disable-features=SmartRestart` applies only to this dedicated automation profile. Keep it present so a Chrome update does not relaunch a zero-window debug process with `--no-startup-window`.
+
+## Manual Shutdown
+
+Long-lived means "reuse by default", not "prevent the user from quitting". When the user explicitly asks to close the dedicated browser, run the bundled shutdown helper from the installed skill root:
+
+```bash
+"$HOME/.codex/skills/frontend-browser-analysis/scripts/stop_dedicated_chrome.sh"
+```
+
+The helper must remain narrowly scoped to port `9222` and `~/.chrome-agent-debug`. It verifies the listener's executable, profile, and debug-port arguments before acting. It first releases the `agent-browser` CDP session and then, if the externally launched Chrome remains alive, sends the normal termination signal `SIGTERM`. It never sends `SIGKILL` and refuses to act when process identity is ambiguous or mismatched.
+
+After the helper returns, verify both conditions:
+
+```bash
+lsof -nP -iTCP:9222 -sTCP:LISTEN
+pgrep -fl '/Applications/[G]oogle Chrome.app/Contents/MacOS/Google Chrome.*--user-data-dir=.*/.chrome-agent-debug'
+```
+
+Do not run the helper merely because an analysis task ended. Run it when the user asks to close the dedicated browser or has stated a close-after-use preference.
 
 ## Collaboration Boundary
 

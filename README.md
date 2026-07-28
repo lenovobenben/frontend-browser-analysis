@@ -29,6 +29,8 @@ Compared with sending large DOM trees, runtime objects, and complete network log
 
 The skill also reuses a dedicated Chrome profile, so you can log in and navigate normally while Codex inspects the current page with the correct account and session context.
 
+The dedicated browser is reusable by default, but it is not meant to be uncloseable. Its launch command disables Chrome Smart Restart for this profile, and the skill includes a guarded shutdown helper that verifies the debug port and profile before closing the automation session and terminating only that Chrome process.
+
 ## What about Chrome DevTools?
 
 Chrome DevTools is a fallback, not the default.
@@ -93,6 +95,8 @@ The instructions used by Codex are defined in [`SKILL.md`](./SKILL.md).
 - 回答更加聚焦，而且能给出清晰的证据链路。
 
 它还会复用一个专用 Chrome Profile。你可以像平时一样登录和操作页面，Codex 则在正确的账号和会话上下文中检查当前页面。
+
+专用浏览器默认可以长期复用，但并不是不能关闭。启动命令会针对这个 Profile 禁用 Chrome Smart Restart；Skill 也提供了带身份校验的退出脚本，确认调试端口和 Profile 后，只关闭对应的自动化会话和 Chrome 进程。
 
 ## Chrome DevTools 怎么用？
 
