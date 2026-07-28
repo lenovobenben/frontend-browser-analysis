@@ -1,6 +1,6 @@
 ---
 name: frontend-browser-analysis
-description: Use when analyzing any web application's frontend behavior on Windows or macOS through the user's logged-in dedicated Chrome profile, including page runtime state, route/store/component data, DOM-accessibility tree, HTTP data sources, certificate-gated internal pages, and collaborative exploration. Enforces platform-aware Chrome debug-port startup/reuse, agent-browser inspection, user-led business navigation, no speculative clicks, no DevTools/CDP for ordinary analysis, successful data loading despite certificate interstitials, safe runtime-state summaries, and read-only API replay only when needed.
+description: Use when analyzing any web application's frontend behavior on Windows or macOS through the user's logged-in dedicated Chrome profile, including page runtime state, route/store/component data, DOM-accessibility tree, HTTP data sources, certificate-gated internal pages, collaborative exploration, and dedicated-browser lifecycle handling. Enforces platform-aware Chrome startup, reuse, and safe shutdown; debug-port identity checks; agent-browser inspection; user-led business navigation; no speculative clicks; no DevTools/CDP for ordinary analysis; successful data loading despite certificate interstitials; safe runtime-state summaries; and read-only API replay only when needed.
 ---
 
 # Frontend Browser Analysis
@@ -22,19 +22,23 @@ This profile carries saved passwords and login state. Avoid fresh browser profil
 
 Use direct Chrome startup only when no suitable browser is already running. Do not rely on shell aliases or functions.
 
-## Startup And Connection
+## Startup, Connection, And Lifecycle
 
-Detect the host operating system before running browser startup commands:
+Detect the host operating system before running browser lifecycle commands:
 
 - On Windows, read and follow [references/startup-windows.md](references/startup-windows.md).
 - On macOS, read and follow [references/startup-macos.md](references/startup-macos.md).
-- On another operating system, stop and explain that its startup path is not yet defined. Do not guess by mixing commands from the Windows and macOS guides.
+- On another operating system, stop and explain that its lifecycle path is not yet defined. Do not guess by mixing commands from the Windows and macOS guides.
 
 Do not run bare `agent-browser get url`, `tab list`, `snapshot`, or `open` when using the dedicated profile. Pass `--cdp 9222` explicitly on every page command so the command cannot attach to or create a temporary browser that lacks the user's login state.
 
 If port `9222` is occupied by a wrong process, report its PID and command before disrupting it. Do not launch another competing browser on the same port.
 
+If a dedicated-profile Chrome has no visible window or contains `--no-startup-window`, treat it as a browser lifecycle state, not as headless mode or malware. Report the state and follow the platform guide instead of silently launching a second Chrome.
+
 Start Chrome at most once. The dedicated Chrome is a long-lived session: start it once, leave it running across tasks, and reconnect on subsequent invocations rather than launching repeatedly.
+
+Long-lived means reuse by default, not prevent the user from quitting. Do not close the dedicated browser merely because an analysis task ended. When the user explicitly asks to close it or has stated a close-after-use preference, follow the platform guide's manual shutdown procedure. Verify both that port `9222` is no longer listening and that no matching dedicated-profile browser process remains. Never terminate unrelated Chrome processes or force-terminate a process whose identity is ambiguous.
 
 After the platform startup guide verifies the listener, inspect:
 
