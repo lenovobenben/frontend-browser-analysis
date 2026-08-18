@@ -23,6 +23,22 @@ This profile carries saved passwords and login state. Avoid fresh browser profil
 
 Use direct Chrome startup only when no suitable browser is already running. Do not rely on shell aliases or functions.
 
+## Debug Scope Boundary
+
+Limit every browser discovery, selection, and inspection path to the Chrome process listening on
+`127.0.0.1:9222` with both of these command-line arguments:
+
+```text
+--remote-debugging-port=9222
+--user-data-dir=/Users/lihaidong/.chrome-agent-debug
+```
+
+The target list exposed by `127.0.0.1:9222` contains only pages in that dedicated debug Chrome. It
+does not expose tabs from an ordinary, non-debug Chrome process. Never use AppleScript, System
+Events, generic GUI automation, another debug port, or another Chrome profile as a fallback to
+discover or switch to ordinary Chrome pages. If the requested page is absent from the verified
+`9222` target list, ask the user to open it in the dedicated debug Chrome.
+
 ## Startup And Connection
 
 Do not run bare `agent-browser get url`, `tab list`, `snapshot`, or `open` before connecting to port `9222` when using the dedicated profile. Without an explicit connection, `agent-browser` may attach to or create a temporary browser that lacks the user's login state.
@@ -39,13 +55,60 @@ If port `9222` is listening, identify the process:
 ps -fp <pid>
 ```
 
-If it is the intended Chrome using `~/.chrome-agent-debug`, connect:
+Proceed only if it is the intended Chrome using the exact debug port and profile described in
+**Debug Scope Boundary**. When the port is already listening, never launch Chrome, never create a
+new window, and never open an `about:blank` page.
+
+Before selecting a page, enumerate all page targets exposed by the verified debug process:
+
+```bash
+curl -fsS http://127.0.0.1:9222/json/list \
+  | jq '[.[] | select(.type == "page") | {id, title, url: (.url | split("?")[0] | split("#")[0])}]'
+```
+
+Use this local endpoint only for bounded target discovery. It sees all windows belonging to the
+dedicated debug Chrome, whereas `agent-browser tab list` lists tabs only in its current window.
+Do not print query strings, fragments, headers, cookies, or target WebSocket URLs in user-facing
+output.
+
+If the user says a page is already open or positioned, treat that as authoritative context:
+
+- Find the matching debug target by title and sanitized URL before navigating or opening anything.
+- If exactly one plausible non-blank page exists, use it.
+- If several pages are plausible and the user's description does not disambiguate them, show only
+  bounded title plus sanitized origin/path choices and ask one short question.
+- If `agent-browser` reports `about:blank` while the global target list contains the requested page,
+  diagnose a current-window attachment mismatch. Do not claim that the page is missing, ask the
+  user to cycle tabs repeatedly, or launch another Chrome.
+
+After target discovery, connect:
 
 ```bash
 /usr/local/bin/agent-browser connect 9222
 ```
 
-If the command contains `--no-startup-window`, treat it as a Chrome background-restart state, not as headless mode. The browser may have no visible windows while the app remains alive. Report that state to the user instead of describing it as malware or silently launching a second Chrome.
+If `agent-browser` is attached to the selected page or to another tab in the same window, use
+`agent-browser tab list` and `agent-browser tab <id>` normally. Remember that these commands do not
+cover other Chrome windows.
+
+If the selected target is in another existing debug window and `agent-browser` remains attached to
+`about:blank`, use a target-specific fallback restricted to the already verified `9222` process:
+
+1. Prefer an available Chrome DevTools target-selection capability to select the exact target id.
+2. Otherwise use that target's local `webSocketDebuggerUrl` for narrowly scoped CDP inspection of
+   the selected page only.
+3. Preserve the same runtime-state redaction, read-only replay, and approval rules used elsewhere
+   in this skill.
+
+This is the only direct-CDP exception for ordinary analysis: it exists because the current
+`agent-browser` window commands cannot switch among existing Chrome windows. Do not use it when
+`agent-browser` can already reach the selected target, and never expand it beyond the verified
+dedicated debug process.
+
+If the Chrome command contains `--no-startup-window`, treat it as a Chrome background-restart
+state, not as headless mode. The browser may have no visible windows while the app remains alive.
+Report that state to the user instead of describing it as malware or silently launching a second
+Chrome.
 
 Then inspect:
 
@@ -82,6 +145,10 @@ open -na "Google Chrome" --args \
 ```
 
 After launching, poll `lsof -nP -iTCP:9222 -sTCP:LISTEN` until the listener appears (typically 3-8 seconds) before connecting. If startup exits without a listener, diagnose stale profile locks, wrong processes, or profile conflicts before retrying.
+
+An initial `about:blank` page is expected only in this no-listener startup branch. Once the user has
+opened or positioned a page, repeat global target discovery and select that page; do not remain
+attached to the startup blank page.
 
 `--disable-features=SmartRestart` applies only to this dedicated automation profile. Keep it present so a Chrome update does not relaunch a zero-window debug process with `--no-startup-window`.
 
