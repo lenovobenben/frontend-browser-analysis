@@ -1,13 +1,13 @@
 ---
 name: frontend-browser-analysis
-description: Use when analyzing any web application's frontend behavior through the user's logged-in dedicated Chrome profile, including page runtime state, route/store/component data, DOM-accessibility tree, HTTP data sources, certificate-gated internal pages, and collaborative exploration. Enforces robust Chrome debug-port startup/reuse, agent-browser inspection, user-led business navigation, no speculative clicks, no DevTools/CDP for ordinary analysis, successful data loading despite certificate interstitials, safe runtime-state summaries, and read-only API replay only when needed.
+description: Use when analyzing any web application's frontend behavior through the user's logged-in dedicated Chrome profile, including page runtime state, route/store/component data, DOM-accessibility tree, HTTP data sources, certificate-gated internal pages, and collaborative exploration. Enforces robust Chrome debug-port startup/reuse, background inspection of existing pages, user-led business navigation, no speculative clicks, no foreground target activation for ordinary analysis, successful data loading despite certificate interstitials, safe runtime-state summaries, and read-only API replay only when needed.
 ---
 
 # Frontend Browser Analysis
 
 ## Purpose
 
-Use the user's dedicated Chrome profile and `/usr/local/bin/agent-browser` to analyze frontend behavior on arbitrary websites and internal systems while preserving saved passwords, browser sync, cookies, and long-lived login sessions. This skill is for collaborative frontend runtime analysis: the user positions the page and provides business context; the agent reads page structure, runtime state, network/resource data, and visible UI behavior.
+Use the user's dedicated Chrome profile to analyze frontend behavior on arbitrary websites and internal systems while preserving saved passwords, browser sync, cookies, and long-lived login sessions. This skill is for collaborative frontend runtime analysis: the user positions the page and provides business context; the agent reads page structure, runtime state, network/resource data, and visible UI behavior.
 
 Do not use this as a generic browser autopilot. The valuable work is explaining how the page is produced: route, component state, store data, visible UI, request parameters, response summaries, and frontend transforms.
 
@@ -41,7 +41,7 @@ discover or switch to ordinary Chrome pages. If the requested page is absent fro
 
 ## Startup And Connection
 
-Do not run bare `agent-browser get url`, `tab list`, `snapshot`, or `open` before connecting to port `9222` when using the dedicated profile. Without an explicit connection, `agent-browser` may attach to or create a temporary browser that lacks the user's login state.
+When reusing an existing browser, do not run `agent-browser connect 9222` or other `agent-browser` commands. The installed version can create or activate a target during attachment or tab switching, bringing Chrome to the foreground. Use the bundled background inspection helper to read the existing page without creating or activating a target.
 
 Start by checking the debug port:
 
@@ -62,14 +62,12 @@ new window, and never open an `about:blank` page.
 Before selecting a page, enumerate all page targets exposed by the verified debug process:
 
 ```bash
-curl -fsS http://127.0.0.1:9222/json/list \
-  | jq '[.[] | select(.type == "page") | {id, title, url: (.url | split("?")[0] | split("#")[0])}]'
+node "$HOME/.codex/skills/frontend-browser-analysis/scripts/background_inspect.mjs" list
 ```
 
-Use this local endpoint only for bounded target discovery. It sees all windows belonging to the
-dedicated debug Chrome, whereas `agent-browser tab list` lists tabs only in its current window.
-Do not print query strings, fragments, headers, cookies, or target WebSocket URLs in user-facing
-output.
+The helper uses only the local `9222` endpoint and sees all windows belonging to the dedicated
+debug Chrome. Do not print query strings, fragments, headers, cookies, or target WebSocket URLs
+in user-facing output.
 
 If the user says a page is already open or positioned, treat that as authoritative context:
 
@@ -77,46 +75,26 @@ If the user says a page is already open or positioned, treat that as authoritati
 - If exactly one plausible non-blank page exists, use it.
 - If several pages are plausible and the user's description does not disambiguate them, show only
   bounded title plus sanitized origin/path choices and ask one short question.
-- If `agent-browser` reports `about:blank` while the global target list contains the requested page,
-  diagnose a current-window attachment mismatch. Do not claim that the page is missing, ask the
-  user to cycle tabs repeatedly, or launch another Chrome.
+- If the list contains both `about:blank` and the requested page, choose the requested page by id.
+  Do not ask the user to cycle tabs or launch another Chrome.
 
-After target discovery, connect:
+Inspect the selected page without activating it:
 
 ```bash
-/usr/local/bin/agent-browser connect 9222
+node "$HOME/.codex/skills/frontend-browser-analysis/scripts/background_inspect.mjs" info <target-id>
+node "$HOME/.codex/skills/frontend-browser-analysis/scripts/background_inspect.mjs" snapshot <target-id>
+node "$HOME/.codex/skills/frontend-browser-analysis/scripts/background_inspect.mjs" eval <target-id> '<read-only JavaScript expression>'
 ```
 
-If `agent-browser` is attached to the selected page or to another tab in the same window, use
-`agent-browser tab list` and `agent-browser tab <id>` normally. Remember that these commands do not
-cover other Chrome windows.
-
-If the selected target is in another existing debug window and `agent-browser` remains attached to
-`about:blank`, use a target-specific fallback restricted to the already verified `9222` process:
-
-1. Prefer an available Chrome DevTools target-selection capability to select the exact target id.
-2. Otherwise use that target's local `webSocketDebuggerUrl` for narrowly scoped CDP inspection of
-   the selected page only.
-3. Preserve the same runtime-state redaction, read-only replay, and approval rules used elsewhere
-   in this skill.
-
-This is the only direct-CDP exception for ordinary analysis: it exists because the current
-`agent-browser` window commands cannot switch among existing Chrome windows. Do not use it when
-`agent-browser` can already reach the selected target, and never expand it beyond the verified
-dedicated debug process.
+The helper connects only to the selected existing page's local CDP target. Preserve the
+runtime-state redaction, read-only replay, and approval rules used elsewhere in this skill. Do
+not use `Target.activateTarget`, `Page.bringToFront`, or a DevTools target selector that activates
+the page. If an interaction needs a foreground page, let the user bring it forward themselves.
 
 If the Chrome command contains `--no-startup-window`, treat it as a Chrome background-restart
 state, not as headless mode. The browser may have no visible windows while the app remains alive.
 Report that state to the user instead of describing it as malware or silently launching a second
 Chrome.
-
-Then inspect:
-
-```bash
-/usr/local/bin/agent-browser get url
-/usr/local/bin/agent-browser tab list
-/usr/local/bin/agent-browser snapshot --compact --depth 8
-```
 
 If port `9222` is occupied by a wrong process, report the PID and command before disrupting it. Do not launch another competing browser on the same port.
 
@@ -129,7 +107,7 @@ ls -ld "$HOME/.chrome-agent-debug"
 
 If the profile contains stale `SingletonCookie`, `SingletonLock`, or `SingletonSocket`, remove them only after confirming the referenced Chrome process is not alive and no dedicated-profile Chrome is running.
 
-Start Chrome at most once. The dedicated Chrome is a long-lived session: start it once, leave it running across tasks, and reconnect on subsequent invocations rather than launching repeatedly.
+Start Chrome at most once. The dedicated Chrome is a long-lived session: start it once, leave it running across tasks, and inspect existing targets on subsequent invocations rather than launching repeatedly.
 
 On macOS, launch via `open -na` so the process is detached from the agent's short-lived shell:
 
@@ -144,11 +122,10 @@ open -na "Google Chrome" --args \
   about:blank
 ```
 
-After launching, poll `lsof -nP -iTCP:9222 -sTCP:LISTEN` until the listener appears (typically 3-8 seconds) before connecting. If startup exits without a listener, diagnose stale profile locks, wrong processes, or profile conflicts before retrying.
+After launching, poll `lsof -nP -iTCP:9222 -sTCP:LISTEN` until the listener appears (typically 3-8 seconds) before inspecting. If startup exits without a listener, diagnose stale profile locks, wrong processes, or profile conflicts before retrying.
 
 An initial `about:blank` page is expected only in this no-listener startup branch. Once the user has
-opened or positioned a page, repeat global target discovery and select that page; do not remain
-attached to the startup blank page.
+opened or positioned a page, repeat global target discovery and select that page.
 
 `--disable-features=SmartRestart` applies only to this dedicated automation profile. Keep it present so a Chrome update does not relaunch a zero-window debug process with `--no-startup-window`.
 
@@ -212,20 +189,14 @@ For any visible field, page section, table, chart, tab, modal, or error:
 1. Confirm the current URL, title, route params, account/site context, and target resource id if present.
 2. Take a compact snapshot of the visible target area.
 3. Inspect runtime state with targeted `eval`: route, store, component names, selected fields, table data, filters, tabs, and error state.
-4. Inspect network history:
+4. Inspect resource timing. Attaching to an existing page does not recover past response bodies:
 
 ```bash
-/usr/local/bin/agent-browser network requests --filter 'Describe|List|Get|Query|Search|Fetch|Load|Graph|Metric|Config'
+node "$HOME/.codex/skills/frontend-browser-analysis/scripts/background_inspect.mjs" eval <target-id> '(() => performance.getEntriesByType("resource").filter(e => /xhr|fetch|api|graphql|query|list|describe|get|search/i.test(e.name)).map(e => ({name: e.name.split("?")[0], initiatorType: e.initiatorType, startTime: Math.round(e.startTime), duration: Math.round(e.duration)})).slice(-80))()'
 ```
 
-5. If network history has no useful body data, inspect resource timing:
-
-```bash
-/usr/local/bin/agent-browser eval '(() => performance.getEntriesByType("resource").filter(e => /xhr|fetch|api|graphql|query|list|describe|get|search/i.test(e.name)).map(e => ({name: e.name, initiatorType: e.initiatorType, startTime: Math.round(e.startTime), duration: Math.round(e.duration)})).slice(-80))()'
-```
-
-6. Map visible UI to component state, then component state to API request/response fields and frontend transforms.
-7. Report concise evidence: visible field -> state field -> interface -> request params -> response field.
+5. Map visible UI to component state, then component state to API request/response fields and frontend transforms.
+6. Report concise evidence: visible field -> state field -> interface -> request params -> response field.
 
 Do not assume one visible section equals one API. Modern pages often compose one area from multiple APIs, cached state, dictionaries, permissions, and frontend formatting.
 
@@ -247,7 +218,7 @@ Skip or redact fields whose names contain `password`, `secret`, `token`, `creden
 Useful Vue pattern:
 
 ```bash
-/usr/local/bin/agent-browser eval '(() => { const out=[]; for (const el of document.querySelectorAll("*")) { const vm=el.__vue__; if (!vm) continue; const text=(el.innerText||"").trim(); const name=vm.$options && (vm.$options.name || vm.$options._componentTag); if (!text && !name) continue; out.push({name, tag: el.tagName, cls: String(el.className||"").slice(0,80), text: text.slice(0,300), route: vm.$route && {path: vm.$route.path, params: vm.$route.params, query: vm.$route.query}}); if (out.length >= 30) break; } return out; })()'
+node "$HOME/.codex/skills/frontend-browser-analysis/scripts/background_inspect.mjs" eval <target-id> '(() => { const out=[]; for (const el of document.querySelectorAll("*")) { const vm=el.__vue__; if (!vm) continue; const text=(el.innerText||"").trim(); const name=vm.$options && (vm.$options.name || vm.$options._componentTag); if (!text && !name) continue; out.push({name, tag: el.tagName, cls: String(el.className||"").slice(0,80), text: text.slice(0,300), route: vm.$route && {path: vm.$route.path, params: vm.$route.params, query: vm.$route.query}}); if (out.length >= 30) break; } return out; })()'
 ```
 
 ## Read-Only API Replay
