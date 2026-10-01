@@ -1,6 +1,6 @@
 # Frontend Browser Analysis
 
-A Codex skill for investigating real web applications through your logged-in Chrome session—with `agent-browser` first, lower token usage, and Chrome DevTools only when necessary.
+A Codex skill for investigating real web applications through a persistent logged-in Chrome profile without bringing the running browser to the foreground.
 
 ## What is it for?
 
@@ -16,11 +16,11 @@ This skill lets Codex inspect the page you already have open and answer question
 
 It is especially useful for authenticated applications, internal systems, admin consoles, and complex single-page applications where the real behavior can only be understood from a live browser session.
 
-## Why `agent-browser`?
+## Why background CDP?
 
-The main feature of this skill is that it uses [`agent-browser`](https://github.com/vercel-labs/agent-browser) as the default way to access Chrome.
+On a running dedicated Chrome, `agent-browser` can create or activate a tab while attaching. This skill instead connects to the selected existing page through its local CDP target. Its inspection helper reads page state without activation; its action helper opens page-derived links in background tabs, navigates existing tabs, and clicks known low-risk in-page controls.
 
-Compared with sending large DOM trees, runtime objects, and complete network logs to the model, `agent-browser` makes it easier to inspect only what matters. In practice, this means:
+The helpers return bounded output, so routine analysis can focus on the relevant route, visible state, and request data without dumping large objects or logs. This means:
 
 - less irrelevant browser output;
 - lower token consumption;
@@ -31,31 +31,28 @@ The skill also reuses a dedicated Chrome profile, so you can log in and navigate
 
 The dedicated browser is reusable by default, but it is not meant to be uncloseable. Its launch command disables Chrome Smart Restart for this profile, and the skill includes a guarded shutdown helper that verifies the debug port and profile before closing the automation session and terminating only that Chrome process.
 
-## What about Chrome DevTools?
+## What about deeper debugging?
 
-Chrome DevTools is a fallback, not the default.
+The bundled helpers use CDP directly. More specialized debugging may need additional target-scoped CDP inspection, but it must not activate the browser or select a foreground target.
 
-If `agent-browser` cannot provide enough information and the problem genuinely requires lower-level DOM, runtime, performance, or network debugging, Codex can use a compatible Chrome DevTools MCP server—if the user has installed one.
-
-This fallback is intentionally used sparingly. Chrome DevTools MCP can be slower and may return much larger amounts of data, which increases token usage without necessarily improving the answer.
+If a step cannot be performed without bringing Chrome forward, Codex leaves that step to the user. High-risk business actions still require explicit approval.
 
 ## How it works
 
 1. Open the target page in the dedicated Chrome profile.
 2. Log in and navigate to the exact page or business context you want to investigate.
 3. Ask Codex a concrete question about what you see.
-4. Codex uses `agent-browser` to inspect the relevant page state and data flow.
-5. Chrome DevTools MCP is considered only if the normal inspection path is insufficient.
+4. Codex inspects the existing page through background CDP and uses background navigation when needed.
+5. Codex reports the relevant evidence and any step that still needs your manual interaction.
 
-You remain in control of login, navigation, and any action that may change data. The skill is designed for collaborative investigation, not unattended browser automation.
+You remain in control of login, business-specific navigation, and any action that may change data. The skill is designed for collaborative investigation, not unattended browser automation.
 
 ## Requirements
 
 - Codex
 - Google Chrome
-- [`agent-browser`](https://github.com/vercel-labs/agent-browser)
 - A dedicated Chrome profile with remote debugging enabled
-- Optional: a compatible Chrome DevTools MCP server for difficult edge cases
+- Node.js with built-in `fetch` and `WebSocket` support
 
 ## Installation
 
@@ -67,7 +64,7 @@ The instructions used by Codex are defined in [`SKILL.md`](./SKILL.md).
 
 # 前端浏览器分析
 
-一个通过已登录 Chrome 会话排查真实 Web 应用的 Codex Skill：优先使用 `agent-browser`，减少 token 消耗，只在必要时才使用 Chrome DevTools。
+一个通过常驻的已登录 Chrome 排查真实 Web 应用、同时避免将浏览器带到前台的 Codex Skill。
 
 ## 它是做什么的？
 
@@ -83,11 +80,11 @@ The instructions used by Codex are defined in [`SKILL.md`](./SKILL.md).
 
 它特别适合需要登录的应用、内部系统、管理后台和复杂单页应用。这些系统的真实行为通常只有在浏览器实际运行起来以后才能看清楚。
 
-## 为什么使用 `agent-browser`？
+## 为什么使用后台 CDP？
 
-这个 Skill 最主要的特色，就是默认通过 [`agent-browser`](https://github.com/vercel-labs/agent-browser) 访问 Chrome。
+对已经运行的专用 Chrome，`agent-browser` 在连接时可能创建或激活标签页。这个 Skill 改为直接连接选中的本地 CDP 页面目标：检查脚本只读页面且不激活它；操作脚本可以把页面已有链接开到后台标签页、在现有标签页导航，以及点击已确认的低风险页面内控件。
 
-相比把大段 DOM、运行时对象和完整网络日志全部交给模型，`agent-browser` 更容易只检查当前问题真正需要的信息。实际使用中，这意味着：
+脚本会限制输出范围，不必把大段 DOM、运行时对象或完整网络日志交给模型。这意味着：
 
 - 更少的无关浏览器输出；
 - 更低的 token 消耗；
@@ -98,31 +95,28 @@ The instructions used by Codex are defined in [`SKILL.md`](./SKILL.md).
 
 专用浏览器默认可以长期复用，但并不是不能关闭。启动命令会针对这个 Profile 禁用 Chrome Smart Restart；Skill 也提供了带身份校验的退出脚本，确认调试端口和 Profile 后，只关闭对应的自动化会话和 Chrome 进程。
 
-## Chrome DevTools 怎么用？
+## 深入调试怎么办？
 
-Chrome DevTools 是兜底方案，不是默认方案。
+随附脚本本身就使用 CDP。更复杂的排查可以使用其他限定在同一页面目标的 CDP 能力，但不能激活浏览器或选择会前置窗口的目标。
 
-如果 `agent-browser` 无法提供足够信息，而问题确实需要更底层的 DOM、运行时、性能或网络调试，那么在用户已经安装兼容 Chrome DevTools MCP Server 的情况下，Codex 可以继续使用它排查。
-
-这个兜底能力会尽量少用。Chrome DevTools MCP 往往更慢，也可能返回大量数据，消耗更多 token，却不一定能让答案更好。
+如果某一步无法在后台安全完成，Codex 会留给用户手动操作；有业务副作用的高风险操作仍需明确批准。
 
 ## 使用方式
 
 1. 使用专用 Chrome Profile 打开目标页面。
 2. 完成登录，并进入需要排查的准确页面或业务上下文。
 3. 向 Codex 提出一个关于当前页面的具体问题。
-4. Codex 通过 `agent-browser` 检查相关页面状态和数据链路。
-5. 只有常规检查仍然无法解决时，才考虑使用 Chrome DevTools MCP。
+4. Codex 通过后台 CDP 检查现有页面，必要时在后台导航。
+5. Codex 汇报证据，以及仍需用户手动完成的步骤。
 
-登录、业务导航以及任何可能修改数据的操作仍由用户控制。这个 Skill 面向的是人与 Codex 协作排查问题，而不是无人值守的浏览器自动化。
+登录、需要业务判断的导航以及任何可能修改数据的操作仍由用户控制。这个 Skill 面向的是人与 Codex 协作排查问题，而不是无人值守的浏览器自动化。
 
 ## 使用条件
 
 - Codex
 - Google Chrome
-- [`agent-browser`](https://github.com/vercel-labs/agent-browser)
 - 一个启用了远程调试的专用 Chrome Profile
-- 可选：用于处理疑难场景的兼容 Chrome DevTools MCP Server
+- 支持内置 `fetch` 和 `WebSocket` 的 Node.js
 
 ## 安装
 

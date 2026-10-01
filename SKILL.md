@@ -1,6 +1,6 @@
 ---
 name: frontend-browser-analysis
-description: Use when analyzing any web application's frontend behavior through the user's logged-in dedicated Chrome profile, including page runtime state, route/store/component data, DOM-accessibility tree, HTTP data sources, certificate-gated internal pages, and collaborative exploration. Enforces robust Chrome debug-port startup/reuse, background inspection of existing pages, user-led business navigation, no speculative clicks, no foreground target activation for ordinary analysis, successful data loading despite certificate interstitials, safe runtime-state summaries, and read-only API replay only when needed.
+description: Analyze web applications through the user's logged-in dedicated Chrome profile. Reuse the running browser without bringing it to the foreground; inspect existing pages and perform necessary low-risk navigation through background CDP, with bounded runtime and API analysis.
 ---
 
 # Frontend Browser Analysis
@@ -41,7 +41,7 @@ discover or switch to ordinary Chrome pages. If the requested page is absent fro
 
 ## Startup And Connection
 
-When reusing an existing browser, do not run `agent-browser connect 9222` or other `agent-browser` commands. The installed version can create or activate a target during attachment or tab switching, bringing Chrome to the foreground. Use the bundled background inspection helper to read the existing page without creating or activating a target.
+When reusing an existing browser, do not run `agent-browser connect 9222` or other `agent-browser` commands. The installed version can create or activate a target during attachment or tab switching, bringing Chrome to the foreground. Use the bundled background helpers for all normal inspection, navigation, and low-risk interaction. Do not bring the browser forward to complete a task; if a step cannot be done without activating it, leave that step to the user.
 
 Start by checking the debug port:
 
@@ -90,6 +90,34 @@ The helper connects only to the selected existing page's local CDP target. Prese
 runtime-state redaction, read-only replay, and approval rules used elsewhere in this skill. Do
 not use `Target.activateTarget`, `Page.bringToFront`, or a DevTools target selector that activates
 the page. If an interaction needs a foreground page, let the user bring it forward themselves.
+
+### Background navigation and clicks
+
+Use these commands when the task requires navigation or a low-risk page interaction. The target
+must already be selected from `background_inspect.mjs list`; labels must match one visible page
+element exactly. No additional user reminder is needed to keep these actions in the background.
+
+```bash
+# Open a link found on the selected page in a new background tab.
+node "$HOME/.codex/skills/frontend-browser-analysis/scripts/background_act.mjs" open-link <target-id> '<exact-link-label>'
+
+# Navigate the selected tab to one of its own links without activating it.
+node "$HOME/.codex/skills/frontend-browser-analysis/scripts/background_act.mjs" navigate-link <target-id> '<exact-link-label>'
+
+# Click a known low-risk in-page button, tab, or menu control, never a form or link.
+node "$HOME/.codex/skills/frontend-browser-analysis/scripts/background_act.mjs" click-control <target-id> '<exact-control-label>'
+```
+
+`open-link` resolves the URL from the page and calls `Target.createTarget` with
+`background: true` and `newWindow: false`. `navigate-link` uses `Page.navigate` on the existing
+target. `click-control` uses a target-scoped CDP `Runtime.evaluate` DOM click with
+`userGesture: false`; use it only after inspecting the control and establishing that it opens
+an in-page view, filter, or menu. Use `open-link` for links that would create another tab. Do
+not use coordinate mouse input, `window.open`, arbitrary `Runtime.evaluate` side effects, or a
+foreground automation tool as a fallback. After navigation or interaction, read `info` and a
+targeted snapshot to verify the result and that background tabs remain `hidden`. Stop if a
+target or visibility changes unexpectedly. High-risk actions still need the explicit approval
+specified below.
 
 If the Chrome command contains `--no-startup-window`, treat it as a Chrome background-restart
 state, not as headless mode. The browser may have no visible windows while the app remains alive.
@@ -163,7 +191,7 @@ High-risk actions require explicit user approval: submit, save, create, update, 
 
 - Prefer page-derived URLs. Before navigating inside an application, use links, menu hrefs, form actions, or runtime route state already present on the page. Only infer or hand-build a URL when no page-derived target is available, and say that it is inferred.
 - Verify after side effects. After saving, uploading, submitting, toggling, or filling important fields, confirm the result with state text, field values, button state, URL changes, or error dialogs instead of relying only on fixed waits.
-- Handle custom controls with fallbacks. For Material UI, Ant Design, or similar custom controls, try accessibility refs first, then role/name targeting, then targeted DOM interaction, then coordinates. After any fallback, verify the final displayed value.
+- Handle custom controls through background-safe CDP only. Inspect the accessible name and DOM first; use the bounded background action helper for supported controls. If the required control cannot be operated without a foreground interaction, ask the user to handle it. After any interaction, verify the final displayed value.
 - Treat high-risk confirmation dialogs as a separate approval point. Read the dialog text, checkbox state, and button labels, explain the effect to the user, and wait for explicit approval before confirming.
 
 ## Certificate Gates
@@ -178,7 +206,7 @@ If Chrome shows a certificate interstitial such as "Your connection is not priva
 - Re-check URL, route, account/site context, page state, and requests.
 - Analyze only after the application page and XHR/fetch requests are actually flowing.
 
-Do not stop at "certificate error" when the user needs data. If `agent-browser` cannot clear the gate, diagnose the blocker and ask the user only for the minimal browser action needed to continue. Do not treat blank pages, missing UI, or failed XHRs caused by certificate blocking as valid frontend or backend evidence.
+Do not stop at "certificate error" when the user needs data. Try a background-safe, target-scoped CDP approach; if the gate still requires a foreground action, ask the user to clear it manually. Do not fall back to `agent-browser` or bring Chrome forward. Do not treat blank pages, missing UI, or failed XHRs caused by certificate blocking as valid frontend or backend evidence.
 
 For shell-only static checks, `curl -k` is acceptable. For browser analysis, clear the interstitial in Chrome so the actual browser session performs subsequent page requests.
 
