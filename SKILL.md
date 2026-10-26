@@ -37,7 +37,11 @@ The target list exposed by `127.0.0.1:9222` contains only pages in that dedicate
 does not expose tabs from an ordinary, non-debug Chrome process. Never use AppleScript, System
 Events, generic GUI automation, another debug port, or another Chrome profile as a fallback to
 discover or switch to ordinary Chrome pages. If the requested page is absent from the verified
-`9222` target list, ask the user to open it in the dedicated debug Chrome.
+`9222` target list, ask the user to open it in the dedicated debug Chrome unless an applicable
+workflow provides a known entry URL and authorizes opening it in a background tab. In particular,
+for `kdocs-markdown`, open `https://365.kdocs.cn/latest` using that skill's `open-home`
+command when no KDocs home tab exists; do not ask the user to open it manually. Keep login and
+account selection with the user, and do not navigate an unrelated existing tab.
 
 ## Startup And Connection
 
