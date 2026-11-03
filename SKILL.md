@@ -1,13 +1,13 @@
 ---
 name: frontend-browser-analysis
-description: Use when analyzing any web application's frontend behavior on Windows or macOS through the user's logged-in dedicated Chrome profile, including page runtime state, route/store/component data, DOM-accessibility tree, HTTP data sources, certificate-gated internal pages, collaborative exploration, and dedicated-browser lifecycle handling. Enforces platform-aware Chrome startup, reuse, and safe shutdown; debug-port identity checks; agent-browser inspection; user-led business navigation; no speculative clicks; no DevTools/CDP for ordinary analysis; successful data loading despite certificate interstitials; safe runtime-state summaries; and read-only API replay only when needed.
+description: Analyze web applications through the user's logged-in dedicated Chrome profile. Reuse the running browser without bringing it to the foreground; inspect existing pages and perform necessary low-risk navigation through background CDP, with bounded runtime and API analysis.
 ---
 
 # Frontend Browser Analysis
 
 ## Purpose
 
-Use the user's dedicated Chrome profile and `agent-browser` to analyze frontend behavior on arbitrary websites and internal systems while preserving saved passwords, browser sync, cookies, and long-lived login sessions. This skill is for collaborative frontend runtime analysis: the user positions the page and provides business context; the agent reads page structure, runtime state, network/resource data, and visible UI behavior.
+Use the user's dedicated Chrome profile to analyze frontend behavior on arbitrary websites and internal systems while preserving saved passwords, browser sync, cookies, and long-lived login sessions. This skill is for collaborative frontend runtime analysis: the user positions the page and provides business context; the agent reads page structure, runtime state, network/resource data, and visible UI behavior.
 
 Do not use this as a generic browser autopilot. The valuable work is explaining how the page is produced: route, component state, store data, visible UI, request parameters, response summaries, and frontend transforms.
 
@@ -15,38 +15,126 @@ Do not use this as a generic browser autopilot. The valuable work is explaining 
 
 Use the shared dedicated Chrome profile:
 
-- Windows: `%USERPROFILE%\.chrome-agent-debug`
-- macOS: `$HOME/.chrome-agent-debug`
+```bash
+"$HOME/.chrome-agent-debug"
+```
 
 This profile carries saved passwords and login state. Avoid fresh browser profiles because they force repeated manual logins and lose the user's prepared state.
 
 Use direct Chrome startup only when no suitable browser is already running. Do not rely on shell aliases or functions.
 
-## Startup, Connection, And Lifecycle
+## Debug Scope Boundary
 
-Detect the host operating system before running browser lifecycle commands:
+Limit every browser discovery, selection, and inspection path to the Chrome process listening on
+`127.0.0.1:9222` with both of these command-line arguments:
+
+```text
+--remote-debugging-port=9222
+--user-data-dir=<absolute path to the current user's .chrome-agent-debug>
+```
+
+Resolve the profile as `%USERPROFILE%\.chrome-agent-debug` on Windows or `$HOME/.chrome-agent-debug` on macOS.
+
+The target list exposed by `127.0.0.1:9222` contains only pages in that dedicated debug Chrome. It
+does not expose tabs from an ordinary, non-debug Chrome process. Never use AppleScript, System
+Events, generic GUI automation, another debug port, or another Chrome profile as a fallback to
+discover or switch to ordinary Chrome pages. If the requested page is absent from the verified
+`9222` target list, ask the user to open it in the dedicated debug Chrome unless an applicable
+workflow provides a known entry URL and authorizes opening it in a background tab. In particular,
+for `kdocs-markdown`, open `https://365.kdocs.cn/latest` using that skill's `open-home`
+command when no KDocs home tab exists; do not ask the user to open it manually. Keep login and
+account selection with the user, and do not navigate an unrelated existing tab.
+
+## Startup And Connection
+
+When reusing an existing browser, do not run `agent-browser connect 9222` or other `agent-browser` commands. The installed version can create or activate a target during attachment or tab switching, bringing Chrome to the foreground. Use the bundled background helpers for all normal inspection, navigation, and low-risk interaction. Do not bring the browser forward to complete a task; if a step cannot be done without activating it, leave that step to the user.
+
+Detect the host operating system before browser lifecycle commands:
 
 - On Windows, read and follow [references/startup-windows.md](references/startup-windows.md).
 - On macOS, read and follow [references/startup-macos.md](references/startup-macos.md).
-- On another operating system, stop and explain that its lifecycle path is not yet defined. Do not guess by mixing commands from the Windows and macOS guides.
+- On another operating system, explain that its lifecycle path is not yet defined rather than mixing platform commands.
 
-Do not run bare `agent-browser get url`, `tab list`, `snapshot`, or `open` when using the dedicated profile. Pass `--cdp 9222` explicitly on every page command so the command cannot attach to or create a temporary browser that lacks the user's login state.
+The platform guide checks the listener and process identity, and starts Chrome only when no suitable browser is running. After verification, use the background helpers below. The `node` examples also work in PowerShell; resolve `$HOME` to the current user's home directory and replace angle-bracket placeholders with actual values.
 
-If port `9222` is occupied by a wrong process, report its PID and command before disrupting it. Do not launch another competing browser on the same port.
+Proceed only if it is the intended Chrome using the exact debug port and profile described in
+**Debug Scope Boundary**. When the port is already listening, never launch Chrome, never create a
+new window, and never open an `about:blank` page.
 
-If a dedicated-profile Chrome has no visible window or contains `--no-startup-window`, treat it as a browser lifecycle state, not as headless mode or malware. Report the state and follow the platform guide instead of silently launching a second Chrome.
+Before selecting a page, enumerate all page targets exposed by the verified debug process:
 
-Start Chrome at most once. The dedicated Chrome is a long-lived session: start it once, leave it running across tasks, and reconnect on subsequent invocations rather than launching repeatedly.
-
-Long-lived means reuse by default, not prevent the user from quitting. Do not close the dedicated browser merely because an analysis task ended. When the user explicitly asks to close it or has stated a close-after-use preference, follow the platform guide's manual shutdown procedure. Verify both that port `9222` is no longer listening and that no matching dedicated-profile browser process remains. Never terminate unrelated Chrome processes or force-terminate a process whose identity is ambiguous.
-
-After the platform startup guide verifies the listener, inspect:
-
-```text
-agent-browser --cdp 9222 get url
-agent-browser --cdp 9222 tab list
-agent-browser --cdp 9222 snapshot --compact --depth 8
+```bash
+node "$HOME/.codex/skills/frontend-browser-analysis/scripts/background_inspect.mjs" list
 ```
+
+The helper uses only the local `9222` endpoint and sees all windows belonging to the dedicated
+debug Chrome. Do not print query strings, fragments, headers, cookies, or target WebSocket URLs
+in user-facing output.
+
+If the user says a page is already open or positioned, treat that as authoritative context:
+
+- Find the matching debug target by title and sanitized URL before navigating or opening anything.
+- If exactly one plausible non-blank page exists, use it.
+- If several pages are plausible and the user's description does not disambiguate them, show only
+  bounded title plus sanitized origin/path choices and ask one short question.
+- If the list contains both `about:blank` and the requested page, choose the requested page by id.
+  Do not ask the user to cycle tabs or launch another Chrome.
+
+Inspect the selected page without activating it:
+
+```bash
+node "$HOME/.codex/skills/frontend-browser-analysis/scripts/background_inspect.mjs" info <target-id>
+node "$HOME/.codex/skills/frontend-browser-analysis/scripts/background_inspect.mjs" snapshot <target-id>
+node "$HOME/.codex/skills/frontend-browser-analysis/scripts/background_inspect.mjs" eval <target-id> '<read-only JavaScript expression>'
+```
+
+The helper connects only to the selected existing page's local CDP target. Preserve the
+runtime-state redaction, read-only replay, and approval rules used elsewhere in this skill. Do
+not use `Target.activateTarget`, `Page.bringToFront`, or a DevTools target selector that activates
+the page. If an interaction needs a foreground page, let the user bring it forward themselves.
+
+### Background navigation and clicks
+
+Use these commands when the task requires navigation or a low-risk page interaction. The target
+must already be selected from `background_inspect.mjs list`; labels must match one visible page
+element exactly. No additional user reminder is needed to keep these actions in the background.
+
+```bash
+# Open a link found on the selected page in a new background tab.
+node "$HOME/.codex/skills/frontend-browser-analysis/scripts/background_act.mjs" open-link <target-id> '<exact-link-label>'
+
+# Navigate the selected tab to one of its own links without activating it.
+node "$HOME/.codex/skills/frontend-browser-analysis/scripts/background_act.mjs" navigate-link <target-id> '<exact-link-label>'
+
+# Click a known low-risk in-page button, tab, or menu control, never a form or link.
+node "$HOME/.codex/skills/frontend-browser-analysis/scripts/background_act.mjs" click-control <target-id> '<exact-control-label>'
+```
+
+`open-link` resolves the URL from the page and calls `Target.createTarget` with
+`background: true` and `newWindow: false`. `navigate-link` uses `Page.navigate` on the existing
+target. `click-control` uses a target-scoped CDP `Runtime.evaluate` DOM click with
+`userGesture: false`; use it only after inspecting the control and establishing that it opens
+an in-page view, filter, or menu. Use `open-link` for links that would create another tab. Do
+not use coordinate mouse input, `window.open`, arbitrary `Runtime.evaluate` side effects, or a
+foreground automation tool as a fallback. After navigation or interaction, read `info` and a
+targeted snapshot to verify the result and that background tabs remain `hidden`. Stop if a
+target or visibility changes unexpectedly. High-risk actions still need the explicit approval
+specified below.
+
+If the Chrome command contains `--no-startup-window`, treat it as a Chrome background-restart
+state, not as headless mode. The browser may have no visible windows while the app remains alive.
+Report that state to the user instead of describing it as malware or silently launching a second
+Chrome.
+
+If port `9222` is occupied by a wrong process, report the PID and command before disrupting it. Do not launch another competing browser on the same port.
+
+Start Chrome at most once using the platform guide. The dedicated Chrome is a long-lived session: leave it running across tasks and inspect existing targets on subsequent invocations. An initial `about:blank` is expected only after a no-listener startup; once the user positions a page, repeat target discovery and select that page.
+
+Keep `--disable-features=SmartRestart` on this dedicated profile so an update does not relaunch a zero-window process with `--no-startup-window`.
+
+## Manual Shutdown
+
+Long-lived means reuse by default, not prevent the user from quitting. When the user explicitly asks to close the browser or has stated a close-after-use preference, follow the platform guide's manual shutdown procedure. Verify that port `9222` is no longer listening and no matching dedicated-profile browser process remains. Never terminate unrelated Chrome processes or a process whose identity is ambiguous. Do not close the browser merely because an analysis task ended.
 
 ## Collaboration Boundary
 
@@ -63,7 +151,7 @@ High-risk actions require explicit user approval: submit, save, create, update, 
 
 - Prefer page-derived URLs. Before navigating inside an application, use links, menu hrefs, form actions, or runtime route state already present on the page. Only infer or hand-build a URL when no page-derived target is available, and say that it is inferred.
 - Verify after side effects. After saving, uploading, submitting, toggling, or filling important fields, confirm the result with state text, field values, button state, URL changes, or error dialogs instead of relying only on fixed waits.
-- Handle custom controls with fallbacks. For Material UI, Ant Design, or similar custom controls, try accessibility refs first, then role/name targeting, then targeted DOM interaction, then coordinates. After any fallback, verify the final displayed value.
+- Handle custom controls through background-safe CDP only. Inspect the accessible name and DOM first; use the bounded background action helper for supported controls. If the required control cannot be operated without a foreground interaction, ask the user to handle it. After any interaction, verify the final displayed value.
 - Treat high-risk confirmation dialogs as a separate approval point. Read the dialog text, checkbox state, and button labels, explain the effect to the user, and wait for explicit approval before confirming.
 
 ## Certificate Gates
@@ -78,7 +166,7 @@ If Chrome shows a certificate interstitial such as "Your connection is not priva
 - Re-check URL, route, account/site context, page state, and requests.
 - Analyze only after the application page and XHR/fetch requests are actually flowing.
 
-Do not stop at "certificate error" when the user needs data. If `agent-browser` cannot clear the gate, diagnose the blocker and ask the user only for the minimal browser action needed to continue. Do not treat blank pages, missing UI, or failed XHRs caused by certificate blocking as valid frontend or backend evidence.
+Do not stop at "certificate error" when the user needs data. Try a background-safe, target-scoped CDP approach; if the gate still requires a foreground action, ask the user to clear it manually. Do not fall back to `agent-browser` or bring Chrome forward. Do not treat blank pages, missing UI, or failed XHRs caused by certificate blocking as valid frontend or backend evidence.
 
 For shell-only static checks, `curl -k` is acceptable. For browser analysis, clear the interstitial in Chrome so the actual browser session performs subsequent page requests.
 
@@ -89,20 +177,14 @@ For any visible field, page section, table, chart, tab, modal, or error:
 1. Confirm the current URL, title, route params, account/site context, and target resource id if present.
 2. Take a compact snapshot of the visible target area.
 3. Inspect runtime state with targeted `eval`: route, store, component names, selected fields, table data, filters, tabs, and error state.
-4. Inspect network history:
+4. Inspect resource timing. Attaching to an existing page does not recover past response bodies:
 
-```text
-agent-browser --cdp 9222 network requests --filter 'Describe|List|Get|Query|Search|Fetch|Load|Graph|Metric|Config'
+```bash
+node "$HOME/.codex/skills/frontend-browser-analysis/scripts/background_inspect.mjs" eval <target-id> '(() => performance.getEntriesByType("resource").filter(e => /xhr|fetch|api|graphql|query|list|describe|get|search/i.test(e.name)).map(e => ({name: e.name.split("?")[0], initiatorType: e.initiatorType, startTime: Math.round(e.startTime), duration: Math.round(e.duration)})).slice(-80))()'
 ```
 
-5. If network history has no useful body data, inspect resource timing:
-
-```text
-agent-browser --cdp 9222 eval '(() => performance.getEntriesByType("resource").filter(e => /xhr|fetch|api|graphql|query|list|describe|get|search/i.test(e.name)).map(e => ({name: e.name, initiatorType: e.initiatorType, startTime: Math.round(e.startTime), duration: Math.round(e.duration)})).slice(-80))()'
-```
-
-6. Map visible UI to component state, then component state to API request/response fields and frontend transforms.
-7. Report concise evidence: visible field -> state field -> interface -> request params -> response field.
+5. Map visible UI to component state, then component state to API request/response fields and frontend transforms.
+6. Report concise evidence: visible field -> state field -> interface -> request params -> response field.
 
 Do not assume one visible section equals one API. Modern pages often compose one area from multiple APIs, cached state, dictionaries, permissions, and frontend formatting.
 
@@ -123,8 +205,8 @@ Skip or redact fields whose names contain `password`, `secret`, `token`, `creden
 
 Useful Vue pattern:
 
-```text
-agent-browser --cdp 9222 eval '(() => { const out=[]; for (const el of document.querySelectorAll("*")) { const vm=el.__vue__; if (!vm) continue; const text=(el.innerText||"").trim(); const name=vm.$options && (vm.$options.name || vm.$options._componentTag); if (!text && !name) continue; out.push({name, tag: el.tagName, cls: String(el.className||"").slice(0,80), text: text.slice(0,300), route: vm.$route && {path: vm.$route.path, params: vm.$route.params, query: vm.$route.query}}); if (out.length >= 30) break; } return out; })()'
+```bash
+node "$HOME/.codex/skills/frontend-browser-analysis/scripts/background_inspect.mjs" eval <target-id> '(() => { const out=[]; for (const el of document.querySelectorAll("*")) { const vm=el.__vue__; if (!vm) continue; const text=(el.innerText||"").trim(); const name=vm.$options && (vm.$options.name || vm.$options._componentTag); if (!text && !name) continue; out.push({name, tag: el.tagName, cls: String(el.className||"").slice(0,80), text: text.slice(0,300), route: vm.$route && {path: vm.$route.path, params: vm.$route.params, query: vm.$route.query}}); if (out.length >= 30) break; } return out; })()'
 ```
 
 ## Read-Only API Replay

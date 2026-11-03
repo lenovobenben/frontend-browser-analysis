@@ -4,22 +4,13 @@ Use PowerShell 7 or Windows PowerShell. Keep Chrome visible because the user han
 
 ## Discover Commands And Paths
 
-Resolve `agent-browser` from `PATH`:
+Verify Node.js is available and supports the background helpers:
 
-```powershell
-$agentBrowser = Get-Command agent-browser -ErrorAction SilentlyContinue
-if (-not $agentBrowser) {
-    throw "agent-browser is not installed or is not available on PATH."
-}
+```text
+node -p "typeof fetch + ' ' + typeof WebSocket"
 ```
 
-If it is missing, report that installation is required. Do not install it unless the user asks:
-
-```powershell
-npm install -g agent-browser
-agent-browser --version
-agent-browser doctor
-```
+Both values must be `function`. If unavailable, report that a compatible Node.js is required; do not install it unless asked.
 
 Find Chrome without assuming one installation scope:
 
@@ -63,10 +54,10 @@ $owner | Select-Object ProcessId, Name, ExecutablePath, CommandLine
 Proceed only when the owner is Chrome and its command line includes both `--remote-debugging-port=9222` and the intended `.chrome-agent-debug` profile. If the owner is wrong or ambiguous, report it and do not terminate it.
 
 ```powershell
-agent-browser --cdp 9222 get url
+node "$HOME/.codex/skills/frontend-browser-analysis/scripts/background_inspect.mjs" list
 ```
 
-Use `--cdp 9222` explicitly on every subsequent `agent-browser` command. Do not rely on a previous `agent-browser connect 9222` call persisting across Windows processes.
+Use the background helpers from `SKILL.md` for subsequent inspection and low-risk interaction. Do not attach with `agent-browser`, which can activate a tab.
 
 ## Start The Dedicated Browser
 
@@ -139,7 +130,7 @@ $ownerPid = $listener.OwningProcess
 Get-CimInstance Win32_Process -Filter "ProcessId = $ownerPid" |
     Select-Object ProcessId, Name, ExecutablePath, CommandLine
 
-agent-browser --cdp 9222 get url
+node "$HOME/.codex/skills/frontend-browser-analysis/scripts/background_inspect.mjs" list
 ```
 
 Keep `--disable-features=SmartRestart` on this dedicated profile so Chrome cannot relaunch it as a zero-window debug process during a browser update.

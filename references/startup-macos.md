@@ -1,17 +1,12 @@
 # macOS Startup And Connection
 
-Resolve `agent-browser` before use:
+Verify Node.js is available and supports the background helpers:
 
-```bash
-if command -v agent-browser >/dev/null 2>&1; then
-  AGENT_BROWSER="$(command -v agent-browser)"
-elif [ -x /usr/local/bin/agent-browser ]; then
-  AGENT_BROWSER=/usr/local/bin/agent-browser
-else
-  echo "agent-browser is not installed or is not available on PATH." >&2
-  exit 1
-fi
+```text
+node -p "typeof fetch + ' ' + typeof WebSocket"
 ```
+
+Both values must be `function`. If unavailable, report that a compatible Node.js is required; do not install it unless asked.
 
 Start by checking the debug port:
 
@@ -25,13 +20,13 @@ If port `9222` is listening, identify the process:
 ps -fp <pid>
 ```
 
-Proceed only when it is the intended Chrome using `~/.chrome-agent-debug`. Verify the connection explicitly:
+Proceed only when it is the intended Chrome using both `--remote-debugging-port=9222` and the exact current user's `~/.chrome-agent-debug` profile. Verify the connection explicitly:
 
 ```bash
-"$AGENT_BROWSER" --cdp 9222 get url
+node "$HOME/.codex/skills/frontend-browser-analysis/scripts/background_inspect.mjs" list
 ```
 
-Use `--cdp 9222` explicitly on every subsequent `agent-browser` command.
+Use the background helpers from `SKILL.md` for subsequent inspection and low-risk interaction. Do not attach with `agent-browser`, which can activate a tab.
 
 If the browser command contains `--no-startup-window`, treat it as a Chrome background-restart state, not as headless mode. The browser may have no visible windows while its process and debug port remain alive. Report that state instead of describing it as malware or silently launching a second Chrome.
 
@@ -57,7 +52,7 @@ open -na "Google Chrome" --args \
   about:blank
 ```
 
-Poll `lsof -nP -iTCP:9222 -sTCP:LISTEN` until the listener appears, typically within 3-8 seconds. Re-check the owning process before verifying the connection with `"$AGENT_BROWSER" --cdp 9222 get url`. If startup exits without a listener, diagnose stale profile locks, wrong processes, or profile conflicts before retrying.
+Poll `lsof -nP -iTCP:9222 -sTCP:LISTEN` until the listener appears, typically within 3-8 seconds. Re-check the owning process before verifying the connection with `node "$HOME/.codex/skills/frontend-browser-analysis/scripts/background_inspect.mjs" list`. If startup exits without a listener, diagnose stale profile locks, wrong processes, or profile conflicts before retrying.
 
 Keep `--disable-features=SmartRestart` on this dedicated profile so Chrome cannot relaunch it as a zero-window debug process during a browser update.
 
